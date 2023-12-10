@@ -31,7 +31,7 @@ class HicoDetDataset(Dataset):
                            for anno
                            in self.annotation[f'bbox_{self.split}'].copy()
                            if not all(hoi['invis'] == 1 for hoi in anno['hoi'])]
-        with open(os.path.join(self.dataset_dir, 'coco_class_indices_contiguous.json'), 'r') as fp:
+        with open(os.path.join(self.dataset_dir, 'coco_class_indices.json'), 'r') as fp:
             self.label_index_map = json.load(fp=fp)
 
     def __len__(self):

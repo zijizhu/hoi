@@ -1,9 +1,6 @@
-import os
 import json
 import numpy as np
 import scipy.io as IO
-from pprint import pprint
-from PIL import Image, ImageFont, ImageDraw, ImageEnhance
 
 # Clean and unify bbox
 

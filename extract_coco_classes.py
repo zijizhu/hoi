@@ -1,23 +1,30 @@
 import json
+import argparse
 
 
-if __name__ == '__main__':
-    contiguous = True
-    with open('coco/instances_train2017.json', 'r') as fp:
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        prog="ExtractCOCOClasses",
+        description="Extract a mapping of COCO dataset classes from the annotation file.",
+    )
+
+    parser.add_argument("-i", "--input-path", default="coco/instances_train2017.json")
+    parser.add_argument("-o", "--output-path", default="hico_20160224_det/coco_class_indices.json")
+    parser.add_argument("-c", "--contiguous", action="store_true")
+    args = parser.parse_args()
+
+    with open(args.input_path, 'r') as fp:
         coco = json.load(fp=fp)
 
     coco_class_indices = {}
 
-    if contiguous:
+    if args.contiguous:
         for idx, category in enumerate(coco['categories']):
             coco_class_indices.update({category['name'].replace(' ', '_'): idx})
-        
-        with open('hico_20160224_det/coco_class_indices_contiguous.json', 'w') as fp:
-            json.dump(obj=coco_class_indices, fp=fp)
     else:
         for category in coco['categories']:
             coco_class_indices.update(
                 {category['name'].replace(' ', '_'): category['id']})
 
-        with open('hico_20160224_det/coco_class_indices.json', 'w') as fp:
-            json.dump(obj=coco_class_indices, fp=fp)
+    with open(args.output_path, 'w') as fp:
+        json.dump(obj=coco_class_indices, fp=fp)

@@ -9,9 +9,12 @@ import pickle as pkl
 import torchvision
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms.functional as F
 
 from detr.datasets import transforms as T
 from detr.models import build_model
+from detr.util import box_ops
+
 from association import BoxAssociation
 from meter import DetectionAPMeter
 from relocate import relocate_to_device
@@ -71,12 +74,15 @@ class HicoDetDataset(Dataset):
                                                 torch.ones(len(bbox)),
                                                 all_label_idxs,
                                                 self.nms_threshold)
-        
-        image, target = self.transforms(image, dict(boxes=bbox[keep_idxs], labels=all_label_idxs[keep_idxs]))
+        target = dict(boxes=bbox[keep_idxs], labels=all_label_idxs[keep_idxs])
+        if self.transforms is not None:
+            image, target = self.transforms(image, target)
 
         return img_path, image, target
 
-def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.5, device='cpu'):
+def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, device='cpu'):
+    # model = None
+    # model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
     model.eval()
     associate = BoxAssociation(min_iou=0.5)
     meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
@@ -94,13 +100,14 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.5, devi
         output = relocate_to_device(output, device=device)
         scores, labels, boxes = postprocessors(output, target[0]['size'].unsqueeze(0))[0].values()
         keep = torch.nonzero(scores >= threshold).squeeze(1)
+
         scores = scores[keep]
         labels = labels[keep]
         boxes = boxes[keep]
 
         gt_boxes = target[0]['boxes']
         # Denormalise ground truth boxes
-        # gt_boxes = box_ops.box_cxcywh_to_xyxy(gt_boxes)
+        gt_boxes = box_ops.box_cxcywh_to_xyxy(gt_boxes)
         h, w = target[0]['size']
         scale_fct = torch.stack([w, h, w, h])
         gt_boxes *= scale_fct
@@ -110,6 +117,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.5, devi
             num_gt[c] += 1
 
         # Associate detections with ground truth
+        # One binary label for each prediction
         binary_labels = torch.zeros(len(labels))
         unique_cls = labels.unique()
         for c in unique_cls:
@@ -117,24 +125,31 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.5, devi
             gt_idx = torch.nonzero(gt_labels == c).squeeze(1)
             if len(gt_idx) == 0:
                 continue
-            binary_labels[det_idx] = associate(
+
+            associate_results = associate(
                 gt_boxes[gt_idx].view(-1, 4),
                 boxes[det_idx].view(-1, 4),
                 scores[det_idx].view(-1)
             )
+            # print('associate_results.shape:', associate_results.shape)
+            binary_labels[det_idx] = associate_results
+        # print('associate_results:', associate_results)
+        # print('binary_labels:', binary_labels)
+        # print('associate_results.shape:', associate_results.shape)
+        # print('binary_labels.shape:', binary_labels.shape)
 
         meter.append(scores, labels, binary_labels)
 
         ### Debug ##########
-        #predictions.append((image_path, scores, labels, boxes))
-        predictions.append((image_path, output))
-        i += 1
-        if i == 10:
-            break
+        # predictions.append((image_path, scores, labels, boxes, target[0]['size'], output))
+        # predictions.append((image_path, output))
+        # i += 1
+        # if i == 10:
+        #     break
 
     ### Debug ###
-    with open('predictions.pkl', 'wb') as fp:
-        pkl.dump(predictions, file=fp)
+    # with open('predictions.pkl', 'wb') as fp:
+    #     pkl.dump(predictions, file=fp)
 
     meter.num_gt = num_gt.tolist()
     return meter.eval(), meter.max_rec
@@ -150,9 +165,10 @@ def collate_fn(batch):
 
 
 if __name__ == '__main__':
-    torch.manual_seed(42)
-    np.random.seed(42)
-    random.seed(42)
+    seed = 42
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
     # Hardcoded configs
     class Args(object):
         def __init__(self):
@@ -259,8 +275,14 @@ if __name__ == '__main__':
             T.RandomResize([800], max_size=1333),
             normalize,
         ])
+    
+    transforms = T.Compose([
+            T.RandomResize([800], max_size=1333),
+            normalize,
+        ])
 
+    # dataset = HicoDetDataset('hico_20160224_det', split=args.split, transforms=transforms)
     dataset = HicoDetDataset('hico_20160224_det', split=args.split, transforms=transforms)
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn, num_workers=args.num_workers)
 
-    eval(detr, dataloader, postprocessors['bbox'], threshold=0.1, device=args.device)
+    eval(detr, dataloader, postprocessors['bbox'], threshold=0.7, device=args.device)

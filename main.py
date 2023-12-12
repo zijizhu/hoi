@@ -62,8 +62,8 @@ class HicoDetDataset(Dataset):
             for bbox in hoi['bboxobject']:
                 [x1, x2, y1, y2] = list(bbox.values())
                 all_bboxes.append([x1, y1, x2, y2])
-                hoi_id = hoi['id']
-                label = self.annotation['list_action'][hoi_id]['nname']
+                hoi_idx = hoi['id'] - 1     # Indices start from 1 in the original .mat annotation
+                label = self.annotation['list_action'][hoi_idx]['nname']
                 all_labels.append(label)
 
         bbox = torch.tensor(all_bboxes).float()
@@ -87,7 +87,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     associate = BoxAssociation(min_iou=0.5)
     meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
     num_gt = torch.zeros(80)
-    
+    model.to(device)
     ### Debug ###
     i = 0
     predictions = []

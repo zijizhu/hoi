@@ -36,8 +36,10 @@ def box_iou(boxes_1: torch.Tensor, boxes_2: torch.Tensor, encoding: str = 'coord
 
     """
     if encoding == 'coord':
+        print('coord')
         return box_ops.box_iou(boxes_1, boxes_2)
     elif encoding == 'pixel':
+        print('pixel')
         w1 = (boxes_1[:, 2] - boxes_1[:, 0] + 1).clamp(min=0)
         h1 = (boxes_1[:, 3] - boxes_1[:, 1] + 1).clamp(min=0)
         s1 = w1 * h1

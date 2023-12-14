@@ -116,14 +116,32 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         for c in gt_labels:
             num_gt[c] += 1
 
+        # For each unique class in the predicted labels:
+        # Check if the class exists in the ground truth labels
+        # If it exists:
+        # Get the indices of GT and prediction bounding boxes of this class
+        # Check if each prediciton bbox has enough iou with some GT bouding box
+        # And create a vector of binary indicator
+        # If it does not:
+        # The binary indicator vector will be all zero
+
         # Associate detections with ground truth
-        # One binary label for each prediction
         binary_labels = torch.zeros(len(labels))
+        print('Number of predicted labels:', len(labels))
+        print('Number of GT labels:', len(gt_labels))
         unique_cls = labels.unique()
+        print('Unique classes:', len(unique_cls))
+        print('-'*10)
         for c in unique_cls:
             det_idx = torch.nonzero(labels == c).squeeze(1)
             gt_idx = torch.nonzero(gt_labels == c).squeeze(1)
+            print('class:', c)
+            print('det_idx:', det_idx)
+            print('gt_idx:', gt_idx)
             if len(gt_idx) == 0:
+                print('***')
+                print('gt_idx == 0')
+                print('***')
                 continue
 
             associate_results = associate(
@@ -131,8 +149,14 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
                 boxes[det_idx].view(-1, 4),
                 scores[det_idx].view(-1)
             )
-            # print('associate_results.shape:', associate_results.shape)
+            print('***')
+            print('associate_results:', associate_results)
+            print('***')
             binary_labels[det_idx] = associate_results
+        print('-'*10)
+        print('binary labels:', binary_labels)
+        print()
+        print()
         # print('associate_results:', associate_results)
         # print('binary_labels:', binary_labels)
         # print('associate_results.shape:', associate_results.shape)

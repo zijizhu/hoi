@@ -5,6 +5,7 @@ wget -O hico_20160224_det.tar.gz https://www.dropbox.com/scl/fi/tpbrlpcheqa68vy0
 mkdir coco
 mkdir checkpoints
 mv instances_train2017.json coco
+mv detr-r50-e632da11.pth checkpoints
 tar -xvf hico_20160224_det.tar.gz --no-same-owner
 python3 hico_det_convert.py
 python3 extract_coco_classes.py --contiguous

@@ -9,6 +9,7 @@ import pickle as pkl
 import torchvision
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
+from torchmetrics.detection import MeanAveragePrecision
 
 from detr.datasets import transforms as T
 from detr.models import build_model
@@ -88,6 +89,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
     num_gt = torch.zeros(80)
     model.to(device)
+    metric = MeanAveragePrecision(iou_type="bbox")
     ### Debug ###
     i = 0
     predictions = []
@@ -113,6 +115,9 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         scale_fct = torch.stack([w, h, w, h])
         gt_boxes *= scale_fct
         gt_labels = target[0]['labels']
+
+        preds = [dict(boxes=boxes, scores=scores, labels=labels)]
+        targets = [dict(boxes=gt_boxes, labels=gt_labels)]
 
         for c in gt_labels:
             num_gt[c] += 1
@@ -175,6 +180,8 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     ### Debug ###
     # with open('predictions.pkl', 'wb') as fp:
     #     pkl.dump(predictions, file=fp)
+    
+    pprint(metric.compute())
 
     meter.num_gt = num_gt.tolist()
     return meter.eval(), meter.max_rec

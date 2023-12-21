@@ -12,7 +12,8 @@ import torch
 from typing import Tuple, Optional
 from torch import FloatTensor, LongTensor
 
-from ops import box_iou
+# from ops import box_iou
+from torchvision.ops import box_iou
 
 class BoxAssociation:
     """
@@ -63,7 +64,7 @@ class BoxAssociation:
             labels(FloatTensor[M]): Binary labels indicating true positive or not
         """
         # Compute intersection over uion
-        iou = self._iou(gt_boxes, det_boxes)
+        iou = box_iou(gt_boxes, det_boxes)
 
         max_iou, max_idx = iou.max(0)
         self._max_iou = max_iou

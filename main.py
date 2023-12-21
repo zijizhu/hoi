@@ -9,15 +9,14 @@ import pickle as pkl
 import torchvision
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms.functional as F
 
 from detr.datasets import transforms as T
 from detr.models import build_model
-from detr.util import box_ops
 
 from association import BoxAssociation
 from meter import DetectionAPMeter
 from relocate import relocate_to_device
+from torchvision.ops import box_convert
 
 
 class HicoDetDataset(Dataset):
@@ -84,6 +83,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     # model = None
     # model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
     model.eval()
+    model.to(device=device)
     associate = BoxAssociation(min_iou=0.5)
     meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
     num_gt = torch.zeros(80)
@@ -97,7 +97,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     for image_path, image, target in tqdm(dataloader):
         image = relocate_to_device(image, device=device)
         output = model(image)
-        output = relocate_to_device(output, device=device)
+        output = relocate_to_device(output, device='cpu')
         scores, labels, boxes = postprocessors(output, target[0]['size'].unsqueeze(0))[0].values()
         keep = torch.nonzero(scores >= threshold).squeeze(1)
 
@@ -107,7 +107,8 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
 
         gt_boxes = target[0]['boxes']
         # Denormalise ground truth boxes
-        gt_boxes = box_ops.box_cxcywh_to_xyxy(gt_boxes)
+        # gt_boxes = box_ops.box_cxcywh_to_xyxy(gt_boxes)
+        gt_boxes = box_convert(gt_boxes, 'cxcywh', 'xyxy')
         h, w = target[0]['size']
         scale_fct = torch.stack([w, h, w, h])
         gt_boxes *= scale_fct
@@ -309,4 +310,5 @@ if __name__ == '__main__':
     dataset = HicoDetDataset('hico_20160224_det', split=args.split, transforms=transforms)
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn, num_workers=args.num_workers)
 
-    eval(detr, dataloader, postprocessors['bbox'], threshold=0.7, device=args.device)
+    ap, rec = eval(detr, dataloader, postprocessors['bbox'], threshold=0.7, device=args.device)
+    print(f"The mAP is {ap.mean().item():.4f}, the mRec is {rec.mean().item():.4f}")

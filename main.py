@@ -90,9 +90,6 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     num_gt = torch.zeros(80)
     model.to(device)
     metric = MeanAveragePrecision(iou_type="bbox")
-    ### Debug ###
-    i = 0
-    predictions = []
 
     if dataloader.batch_size != 1:
         raise ValueError(f"The batch size shoud be 1, not {dataloader.batch_size}")
@@ -108,8 +105,6 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         boxes = boxes[keep]
 
         gt_boxes = target[0]['boxes']
-        # Denormalise ground truth boxes
-        # gt_boxes = box_ops.box_cxcywh_to_xyxy(gt_boxes)
         gt_boxes = box_convert(gt_boxes, 'cxcywh', 'xyxy')
         h, w = target[0]['size']
         scale_fct = torch.stack([w, h, w, h])
@@ -155,31 +150,10 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
                 boxes[det_idx].view(-1, 4),
                 scores[det_idx].view(-1)
             )
-            print('***')
-            print('associate_results:', associate_results)
-            print('***')
+
             binary_labels[det_idx] = associate_results
-        print('-'*10)
-        print('binary labels:', binary_labels)
-        print()
-        print()
-        # print('associate_results:', associate_results)
-        # print('binary_labels:', binary_labels)
-        # print('associate_results.shape:', associate_results.shape)
-        # print('binary_labels.shape:', binary_labels.shape)
 
         meter.append(scores, labels, binary_labels)
-
-        ### Debug ##########
-        # predictions.append((image_path, scores, labels, boxes, target[0]['size'], output))
-        # predictions.append((image_path, output))
-        # i += 1
-        # if i == 10:
-        #     break
-
-    ### Debug ###
-    # with open('predictions.pkl', 'wb') as fp:
-    #     pkl.dump(predictions, file=fp)
     
     pprint(metric.compute())
 

@@ -201,7 +201,7 @@ if __name__ == '__main__':
             # Other backbone args
             self.lr_backbone = 1e-6
             self.backbone = 'resnet50'       # Name of the convolutional backbone to use
-            self.dilation = 'store_true'     # If true, we replace stride with dilation in the last convolutional block (DC5)
+            self.dilation = False     # If true, we replace stride with dilation in the last convolutional block (DC5)
             #################
 
             ### Transformer ####

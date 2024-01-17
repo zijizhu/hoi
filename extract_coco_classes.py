@@ -8,7 +8,7 @@ if __name__ == "__main__":
         description="Extract a mapping of COCO dataset classes from the annotation file.",
     )
 
-    parser.add_argument("-i", "--input-path", default="coco/instances_train2017.json")
+    parser.add_argument("-i", "--input-path", default="instances_train2017.json")
     parser.add_argument("-o", "--output-path", default="hico_20160224_det/coco_class_indices.json")
     parser.add_argument("-c", "--contiguous", action="store_true")
     args = parser.parse_args()

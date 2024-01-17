@@ -1,23 +1,22 @@
 import os
 import json
 import torch
-import numpy as np
 import random
+import numpy as np
+import torchvision
+import pickle as pkl
+from PIL import Image
 from tqdm import tqdm
 from pprint import pprint
-import pickle as pkl
-import torchvision
-from PIL import Image
+from torchvision import ops
 from torch.utils.data import Dataset, DataLoader
-from torchmetrics.detection import MeanAveragePrecision
 
-from detr.datasets import transforms as T
 from detr.models import build_model
+from detr.datasets import transforms as T
 
-from association import BoxAssociation
 from meter import DetectionAPMeter
+from association import BoxAssociation
 from relocate import relocate_to_device
-from torchvision.ops import box_convert
 
 
 class HicoDetDataset(Dataset):
@@ -42,11 +41,6 @@ class HicoDetDataset(Dataset):
 
     def __getitem__(self, idx):
         bbox_anno = self.annotation[f'bbox_{self.split}'][idx]
-        ########### debug ############
-        # print(os.path.join(self.dataset_dir,
-        #                                 'images',
-        #                                 f'{self.split}2015',
-        #                                 bbox_anno['filename']))
         img_path = os.path.join(self.dataset_dir, 'images', f'{self.split}2015', bbox_anno['filename'])
         image = Image.open(img_path).convert('RGB')
         # Remove invisible hois
@@ -81,15 +75,14 @@ class HicoDetDataset(Dataset):
         return img_path, image, target
 
 def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, device='cpu'):
-    # model = None
-    # model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
     model.eval()
     model.to(device=device)
+
     associate = BoxAssociation(min_iou=0.5)
     meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
     num_gt = torch.zeros(80)
+
     model.to(device)
-    metric = MeanAveragePrecision(iou_type="bbox")
 
     if dataloader.batch_size != 1:
         raise ValueError(f"The batch size shoud be 1, not {dataloader.batch_size}")
@@ -97,6 +90,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         image = relocate_to_device(image, device=device)
         output = model(image)
         output = relocate_to_device(output, device='cpu')
+        
         scores, labels, boxes = postprocessors(output, target[0]['size'].unsqueeze(0))[0].values()
         keep = torch.nonzero(scores >= threshold).squeeze(1)
 
@@ -105,57 +99,42 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         boxes = boxes[keep]
 
         gt_boxes = target[0]['boxes']
-        gt_boxes = box_convert(gt_boxes, 'cxcywh', 'xyxy')
+        gt_boxes = ops.box_convert(gt_boxes, 'cxcywh', 'xyxy')
         h, w = target[0]['size']
         scale_fct = torch.stack([w, h, w, h])
         gt_boxes *= scale_fct
         gt_labels = target[0]['labels']
 
-        preds = [dict(boxes=boxes, scores=scores, labels=labels)]
-        targets = [dict(boxes=gt_boxes, labels=gt_labels)]
-
         for c in gt_labels:
             num_gt[c] += 1
 
         # For each unique class in the predicted labels:
-        # Check if the class exists in the ground truth labels
+        # Check if the class exists in the ground truth labels.
         # If it exists:
-        # Get the indices of GT and prediction bounding boxes of this class
-        # Check if each prediciton bbox has enough iou with some GT bouding box
-        # And create a vector of binary indicator
+        # Get the indices of GT and prediction bounding boxes of this class.
+        # Check if each prediciton bbox has enough iou with some GT bouding box.
+        # And create a vector of binary indicator.
         # If it does not:
-        # The binary indicator vector will be all zero
+        # The binary indicator vector will be all zero.
 
         # Associate detections with ground truth
         binary_labels = torch.zeros(len(labels))
-        print('Number of predicted labels:', len(labels))
-        print('Number of GT labels:', len(gt_labels))
         unique_cls = labels.unique()
-        print('Unique classes:', len(unique_cls))
-        print('-'*10)
+
         for c in unique_cls:
             det_idx = torch.nonzero(labels == c).squeeze(1)
             gt_idx = torch.nonzero(gt_labels == c).squeeze(1)
-            print('class:', c)
-            print('det_idx:', det_idx)
-            print('gt_idx:', gt_idx)
+
             if len(gt_idx) == 0:
-                print('***')
-                print('gt_idx == 0')
-                print('***')
                 continue
 
-            associate_results = associate(
-                gt_boxes[gt_idx].view(-1, 4),
-                boxes[det_idx].view(-1, 4),
-                scores[det_idx].view(-1)
-            )
-
+            associate_results = associate(gt_boxes[gt_idx].view(-1, 4),
+                                          boxes[det_idx].view(-1, 4),
+                                          scores[det_idx].view(-1))
+            
             binary_labels[det_idx] = associate_results
 
         meter.append(scores, labels, binary_labels)
-    
-    pprint(metric.compute())
 
     meter.num_gt = num_gt.tolist()
     return meter.eval(), meter.max_rec

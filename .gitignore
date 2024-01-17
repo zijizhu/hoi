@@ -5,3 +5,6 @@ hico_20160224_det
 checkpoints
 coco
 *.pkl
+*.json
+*.zip
+*.tar.*

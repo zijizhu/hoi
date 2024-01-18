@@ -63,15 +63,19 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
 
     model.to(device)
 
+    save_data = []
+
     if dataloader.batch_size != 1:
         raise ValueError(f"The batch size shoud be 1, not {dataloader.batch_size}")
     for image_path, image, target in tqdm(dataloader):
         image = relocate_to_device(image, device=device)
         output = model(image)
         output = relocate_to_device(output, device='cpu')
-        
+
         scores, labels, boxes = postprocessors(output, target[0]['size'].unsqueeze(0))[0].values()
         keep = torch.nonzero(scores >= threshold).squeeze(1)
+
+        postprocessed_output = dict(raw=output, scores=scores, labels=labels, boxes=boxes)
 
         scores = scores[keep]
         labels = labels[keep]
@@ -114,9 +118,17 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
             
             binary_labels[det_idx] = associate_results
 
+        kept_output = dict(scores=scores, labels=labels, boxes=boxes, binary_labels=binary_labels)
+
         meter.append(scores, labels, binary_labels)
 
+        save_data.append(dict(postprocessed=postprocessed_output, kept=kept_output))
+
     meter.num_gt = num_gt.tolist()
+
+    with open('save_data.pkl', 'wb') as fp:
+        pkl.dump(save_data, file=fp)
+
     return meter.eval(), meter.max_rec
 
 

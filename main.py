@@ -26,61 +26,40 @@ class HicoDetDataset(Dataset):
         self.split = split
         self.nms_threshold = nms_threshold
         self.transforms = transforms
-        with open(os.path.join(self.dataset_dir, 'anno_cleaned.json'), 'r') as fp:
+        if self.split == 'train':
+            ann_filename = 'trainval_hico.json'
+        else:
+            ann_filename = 'test_hico.json'
+        with open(os.path.join(self.dataset_dir, ann_filename), 'r') as fp:
             self.annotation = json.load(fp=fp)
-        # Remove instance if all hois in instance is invisible
-        self.annotation[f'bbox_{self.split}'] = [anno
-                           for anno
-                           in self.annotation[f'bbox_{self.split}'].copy()
-                           if not all(hoi['invis'] == 1 for hoi in anno['hoi'])]
-        with open(os.path.join(self.dataset_dir, 'coco_class_indices.json'), 'r') as fp:
-            self.label_index_map = json.load(fp=fp)
 
     def __len__(self):
-        return len(self.annotation[f'bbox_{self.split}'])
+        return len(self.annotation)
 
     def __getitem__(self, idx):
-        bbox_anno = self.annotation[f'bbox_{self.split}'][idx]
-        img_path = os.path.join(self.dataset_dir, 'images', f'{self.split}2015', bbox_anno['filename'])
-        image = Image.open(img_path).convert('RGB')
-        # Remove invisible hois
-        all_hois = [hoi for hoi in bbox_anno['hoi'] if hoi['invis'] == 0]
-        # Collect bounding boxes
-        all_bboxes = []
-        all_labels = []
-        for hoi in all_hois:
-            for bbox in hoi['bboxhuman']:
-                [x1, x2, y1, y2] = list(bbox.values())
-                all_bboxes.append([x1, y1, x2, y2])
-                all_labels.append('person')
-            for bbox in hoi['bboxobject']:
-                [x1, x2, y1, y2] = list(bbox.values())
-                all_bboxes.append([x1, y1, x2, y2])
-                hoi_idx = hoi['id'] - 1     # Indices start from 1 in the original .mat annotation
-                label = self.annotation['list_action'][hoi_idx]['nname']
-                all_labels.append(label)
+        ann = self.annotation[idx]
+        img_fn = ann['file_name']
+        box_list = [box_class['bbox'] for box_class in ann['annotations']]
+        label_list = [box_class['category_id'] for box_class in ann['annotations']]
+        image = Image.open(os.path.join(self.dataset_dir, 'images', f'{self.split}2015', img_fn)).convert('RGB')
 
-        bbox = torch.tensor(all_bboxes).float()
-        all_label_idxs = torch.tensor(
-            [self.label_index_map[label] for label in all_labels])
+        boxes = torch.tensor(box_list).float()
+        labels = torch.tensor(label_list).int()
 
-        keep_idxs = torchvision.ops.batched_nms(bbox,
-                                                torch.ones(len(bbox)),
-                                                all_label_idxs,
-                                                self.nms_threshold)
-        target = dict(boxes=bbox[keep_idxs], labels=all_label_idxs[keep_idxs])
+        target = dict(boxes=boxes, labels=labels)
         if self.transforms is not None:
             image, target = self.transforms(image, target)
 
-        return img_path, image, target
+        return img_fn, image, target
+
 
 def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, device='cpu'):
     model.eval()
     model.to(device=device)
 
     associate = BoxAssociation(min_iou=0.5)
-    meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
-    num_gt = torch.zeros(80)
+    meter = DetectionAPMeter(90, algorithm='INT', nproc=10)
+    num_gt = torch.zeros(90)
 
     model.to(device)
 
@@ -98,9 +77,10 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         labels = labels[keep]
         boxes = boxes[keep]
 
+        # Convert normalized GT boxes to full scale
         gt_boxes = target[0]['boxes']
         gt_boxes = ops.box_convert(gt_boxes, 'cxcywh', 'xyxy')
-        h, w = target[0]['size']
+        h, w = target[0]['size']    # h and w are scalars
         scale_fct = torch.stack([w, h, w, h])
         gt_boxes *= scale_fct
         gt_labels = target[0]['labels']
@@ -157,7 +137,7 @@ if __name__ == '__main__':
     # Hardcoded configs
     class Args(object):
         def __init__(self):
-            self.split = 'train'
+            self.split = 'test'
             self.device = 'cpu'
             self.output_dir = 'out'
             self.print_interval = 1000
@@ -222,17 +202,17 @@ if __name__ == '__main__':
 
     # Swap the class prediction head to one that has 80 classes
     # i.e. No nodes for N/A classes
-    class_embed = torch.nn.Linear(256, 81, bias=True)
-    w, b = detr.class_embed.state_dict().values()
-    keep = [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-        22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-        43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
-        62, 63, 64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84,
-        85, 86, 87, 88, 89, 90, 91
-    ]
-    class_embed.load_state_dict(dict(weight=w[keep], bias=b[keep]))
-    detr.class_embed = class_embed
+    # class_embed = torch.nn.Linear(256, 81, bias=True)
+    # w, b = detr.class_embed.state_dict().values()
+    # keep = [
+    #     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    #     22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
+    #     43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
+    #     62, 63, 64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84,
+    #     85, 86, 87, 88, 89, 90, 91
+    # ]
+    # class_embed.load_state_dict(dict(weight=w[keep], bias=b[keep]))
+    # detr.class_embed = class_embed
 
     # Prepare dataset transforms
     # Note: those custom transform function will add 'size' field to label dict.

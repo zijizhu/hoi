@@ -8,3 +8,4 @@ coco
 *.json
 *.zip
 *.tar.*
+*.npy

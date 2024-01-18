@@ -2,7 +2,7 @@ pip install scipy tqdm pycocotools
 git clone https://github.com/fredzzhang/detr.git
 
 ##### Download dataset  and annotation files #####
-wget -O hico_20160224_det.tar.gz "https://www.dropbox.com/scl/fi/tpbrlpcheqa68vy06bhsa/hico_20160224_det.tar.gz?rlkey=xl5i3k3rffm1sup68nekfp0h9&dl=0"
+wget -q --show-progress -O hico_20160224_det.tar.gz "https://www.dropbox.com/scl/fi/tpbrlpcheqa68vy06bhsa/hico_20160224_det.tar.gz?rlkey=xl5i3k3rffm1sup68nekfp0h9&dl=0"
 tar -xvf hico_20160224_det.tar.gz --no-same-owner
 
 wget -q --show-progress -O trainval_hico.json "https://www.dropbox.com/scl/fi/pseygkwdglqo0fjeu3sk2/trainval_hico.json?rlkey=twx3panz8quudyla72tq0yd8x&dl=0"

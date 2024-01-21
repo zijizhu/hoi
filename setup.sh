@@ -1,3 +1,5 @@
+set -x
+
 pip install scipy tqdm pycocotools
 git clone https://github.com/fredzzhang/detr.git
 

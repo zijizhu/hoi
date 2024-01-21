@@ -68,8 +68,8 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
     model.to(device=device)
 
     associate = BoxAssociation(min_iou=0.5)
-    meter = DetectionAPMeter(91, algorithm='INT', nproc=10)
-    num_gt = torch.zeros(91)
+    meter = DetectionAPMeter(80, algorithm='INT', nproc=10)
+    num_gt = torch.zeros(80)
 
     model.to(device)
 

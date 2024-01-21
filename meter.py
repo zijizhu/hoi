@@ -318,8 +318,6 @@ class DetectionAPMeter:
         Returns:
             torch.Tensor[K]: Average precisions for K classes
         """
-        print(self._output)
-        print(self._labels)
         self._output = [torch.cat([out1, torch.as_tensor(out2, dtype=self._dtype)]) for out1, out2 in zip(self._output, self._output_temp)]
         self._labels = [torch.cat([tar1, torch.as_tensor(tar2, dtype=self._dtype)]) for tar1, tar2 in zip(self._labels, self._labels_temp)]
         self.reset(keep_old=True)

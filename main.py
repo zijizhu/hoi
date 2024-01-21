@@ -20,11 +20,10 @@ from relocate import relocate_to_device
 
 
 class HicoDetDataset(Dataset):
-    def __init__(self, dataset_dir, split, transforms=None, nms_threshold=0.7) -> None:
+    def __init__(self, dataset_dir, split, transforms=None) -> None:
         super().__init__()
         self.dataset_dir = dataset_dir
         self.split = split
-        self.nms_threshold = nms_threshold
         self.transforms = transforms
         if self.split == 'train':
             ann_filename = 'trainval_hico.json'
@@ -262,5 +261,5 @@ if __name__ == '__main__':
     dataset = HicoDetDataset('hico_20160224_det', split=args.split, transforms=transforms)
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn, num_workers=args.num_workers)
 
-    ap, rec = eval(detr, dataloader, postprocessors['bbox'], threshold=0.7, device=args.device)
+    ap, rec = eval(detr, dataloader, postprocessors['bbox'], threshold=0.1, device=args.device)
     print(f"The mAP is {ap.mean().item():.4f}, the mRec is {rec.mean().item():.4f}")

@@ -40,6 +40,10 @@ class HicoDetDataset(Dataset):
             ann_filename = 'test_hico.json'
         with open(os.path.join(self.dataset_dir, ann_filename), 'r') as fp:
             self.annotation = json.load(fp=fp)
+        with open(os.path.join('annotations', 'coco_classes.json'), 'r') as fp:
+            self.coco_classes = json.load(fp=fp)
+        # Map class classes to contiguous indices [1, 90] to [0, 79]
+        self.label_map = {i: j for i, j in zip(sorted(list(self.coco_classes.keys())), range(80))}
 
     def __len__(self):
         return len(self.annotation)
@@ -55,6 +59,8 @@ class HicoDetDataset(Dataset):
 
         boxes = torch.tensor(box_list).float()
         labels = torch.tensor(label_list_mapped).int()
+        
+        # The annotation files has duplicated boxes that need to be removed via nms
         nms_keep = ops.batched_nms(boxes=boxes,
                                    scores=torch.ones(len(boxes)),
                                    idxs=labels,
@@ -218,8 +224,6 @@ if __name__ == '__main__':
                         help="L1 box coefficient in the matching cost")
     parser.add_argument('--set-cost-giou', default=2, type=float,
                         help="Giou box coefficient in the matching cost")
-    
-    # Loss coefficients
     parser.add_argument('--bbox-loss-coef', default=5, type=float)
     parser.add_argument('--giou-loss-coef', default=2, type=float)
     parser.add_argument('--eos-coef', default=0.1, type=float,
@@ -228,10 +232,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
+    # Set seeds
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed)
     
+    # Build model
     detr, criterion, postprocessors = build_model(args)
 
     if args.pretrained:
@@ -257,7 +263,7 @@ if __name__ == '__main__':
         detr.load_state_dict(torch.load(args.resume)['model_state_dict'])
 
     # Prepare dataset transforms
-    # Note: those custom transform function will add 'size' field to label dict.
+    # DETR's custom transform functions will add 'size' field to label dict.
     normalize = T.Compose([
         T.ToTensor(),
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])

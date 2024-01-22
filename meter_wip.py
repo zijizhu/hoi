@@ -2,17 +2,10 @@ import os
 import json
 import torch
 import numpy as np
-import torchvision
 import pickle as pkl
-from pprint import pprint
-from torchvision import ops
-import matplotlib.pyplot as plt
-from PIL import Image, ImageDraw
-from torch.utils.data import Dataset, DataLoader
-from meter import DetectionAPMeter, compute_per_class_ap_as_auc
 
 
-def auc(precision, recall: torch.Tensor):
+def auc(precision: torch.Tensor, recall: torch.Tensor):
     ap = torch.tensor(0, dtype=torch.float64)
     max_rec = recall[-1]
     for i in range(recall.numel()):
@@ -25,6 +18,14 @@ def auc(precision, recall: torch.Tensor):
         else:
             ap += 0.5 * (precision[i] + precision[i - 1]) * (recall[i] - recall[i - 1])
     return ap
+
+
+class AveragePrecision:
+    def __init__(self) -> None:
+        pass
+
+
+
 
 
 with open('save_data.pkl', 'rb') as fp:

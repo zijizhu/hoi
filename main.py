@@ -1,79 +1,19 @@
-import os
-import json
 import torch
 import random
 import argparse
 import numpy as np
 import pickle as pkl
-from PIL import Image
 from tqdm import tqdm
 from torchvision import ops
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 from detr.models import build_model
 from detr.datasets import transforms as T
 
 from meter import DetectionAPMeter
 from association import BoxAssociation
-from relocate import relocate_to_device
-
-label_map = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 11: 10, 13: 11, 14: 12,
- 15: 13, 16: 14, 17: 15, 18: 16, 19: 17, 20: 18, 21: 19, 22: 20, 23: 21, 24: 22, 25: 23, 27: 24,
- 28: 25, 31: 26, 32: 27, 33: 28, 34: 29, 35: 30, 36: 31, 37: 32, 38: 33, 39: 34, 40: 35, 41: 36,
- 42: 37, 43: 38, 44: 39, 46: 40,47: 41, 48: 42, 49: 43, 50: 44,51: 45, 52: 46, 53: 47, 54: 48, 55: 49,
- 56: 50, 57: 51, 58: 52, 59: 53, 60: 54, 61: 55, 62: 56, 63: 57, 64: 58, 65: 59, 67: 60, 70: 61, 72: 62,
- 73: 63, 74: 64, 75: 65, 76: 66, 77: 67, 78: 68, 79: 69, 80: 70, 81: 71, 82: 72, 84: 73, 85: 74, 86: 75,
- 87: 76, 88: 77, 89: 78, 90: 79}
-label_map_vec = np.vectorize(label_map.get)
-
-
-class HicoDetDataset(Dataset):
-    def __init__(self, dataset_dir, split, transforms=None, nms_threshold=0.7) -> None:
-        super().__init__()
-        self.dataset_dir = dataset_dir
-        self.split = split
-        self.transforms = transforms
-        self.nms_threshold = nms_threshold
-        if self.split == 'train':
-            ann_filename = 'trainval_hico.json'
-        else:
-            ann_filename = 'test_hico.json'
-        with open(os.path.join(self.dataset_dir, ann_filename), 'r') as fp:
-            self.annotation = json.load(fp=fp)
-        with open(os.path.join('annotations', 'coco_classes.json'), 'r') as fp:
-            self.coco_classes = json.load(fp=fp)
-        # Map class classes to contiguous indices [1, 90] to [0, 79]
-        self.label_map = {i: j for i, j in zip(sorted(list(self.coco_classes.keys())), range(80))}
-
-    def __len__(self):
-        return len(self.annotation)
-
-    def __getitem__(self, idx):
-        ann = self.annotation[idx]
-        img_fn = ann['file_name']
-        box_list = [box_class['bbox'] for box_class in ann['annotations']]
-        label_list = [box_class['category_id'] for box_class in ann['annotations']]
-        # Map label ids to contiguous integers (coco dataset has some None classes)
-        label_list_mapped = [label_map[idx] for idx in label_list]
-        image = Image.open(os.path.join(self.dataset_dir, 'images', f'{self.split}2015', img_fn)).convert('RGB')
-
-        boxes = torch.tensor(box_list).float()
-        labels = torch.tensor(label_list_mapped).int()
-        
-        # The annotation files has duplicated boxes that need to be removed via nms
-        nms_keep = ops.batched_nms(boxes=boxes,
-                                   scores=torch.ones(len(boxes)),
-                                   idxs=labels,
-                                   iou_threshold=self.nms_threshold)
-        
-        boxes, labels = boxes[nms_keep], labels[nms_keep]
-
-        target = dict(boxes=boxes, labels=labels)
-
-        if self.transforms is not None:
-            image, target = self.transforms(image, target)
-
-        return img_fn, image, target
+from utils.relocate import relocate_to_device
+from dataset.hicodet import HicoDetDataset, collate_fn
 
 
 def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, device='cpu'):
@@ -107,7 +47,7 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         # Convert normalized GT boxes to full scale
         gt_boxes = target[0]['boxes']
         gt_boxes = ops.box_convert(gt_boxes, 'cxcywh', 'xyxy')
-        h, w = target[0]['size']    # h and w are scalars
+        h, w = target[0]['size']
         scale_fct = torch.stack([w, h, w, h])
         gt_boxes *= scale_fct
         gt_labels = target[0]['labels']
@@ -153,15 +93,6 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         pkl.dump(save_data, file=fp)
 
     return meter.eval(), meter.max_rec
-
-
-def collate_fn(batch):
-    batch_image_paths = []; batch_images = []; batch_targets = []
-    for path, img, target in batch:
-        batch_image_paths.append(path)
-        batch_images.append(img)
-        batch_targets.append(target)
-    return batch_image_paths, batch_images, batch_targets
 
 
 if __name__ == '__main__':

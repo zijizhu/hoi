@@ -1,21 +1,9 @@
 import os
 import json
 import torch
-import random
-import argparse
-import numpy as np
-import pickle as pkl
 from PIL import Image
-from tqdm import tqdm
 from torchvision import ops
-from torch.utils.data import Dataset, DataLoader
-
-from detr.models import build_model
-from detr.datasets import transforms as T
-
-from meter import DetectionAPMeter
-from association import BoxAssociation
-from relocate import relocate_to_device
+from torch.utils.data import Dataset
 
 
 class HicoDetDataset(Dataset):
@@ -65,3 +53,12 @@ class HicoDetDataset(Dataset):
             image, target = self.transforms(image, target)
 
         return img_fn, image, target
+
+
+def collate_fn(batch):
+    batch_image_paths = []; batch_images = []; batch_targets = []
+    for path, img, target in batch:
+        batch_image_paths.append(path)
+        batch_images.append(img)
+        batch_targets.append(target)
+    return batch_image_paths, batch_images, batch_targets

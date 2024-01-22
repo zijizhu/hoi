@@ -1,3 +1,6 @@
+'''
+Relevant dataset implementation used in https://github.com/fredzzhang/hicodet/tree/main
+'''
 import os
 import json
 import torch

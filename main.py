@@ -2,12 +2,11 @@ import os
 import json
 import torch
 import random
+import argparse
 import numpy as np
-import torchvision
 import pickle as pkl
 from PIL import Image
 from tqdm import tqdm
-from pprint import pprint
 from torchvision import ops
 from torch.utils.data import Dataset, DataLoader
 
@@ -29,11 +28,12 @@ label_map_vec = np.vectorize(label_map.get)
 
 
 class HicoDetDataset(Dataset):
-    def __init__(self, dataset_dir, split, transforms=None) -> None:
+    def __init__(self, dataset_dir, split, transforms=None, nms_threshold=0.7) -> None:
         super().__init__()
         self.dataset_dir = dataset_dir
         self.split = split
         self.transforms = transforms
+        self.nms_threshold = nms_threshold
         if self.split == 'train':
             ann_filename = 'trainval_hico.json'
         else:
@@ -55,8 +55,15 @@ class HicoDetDataset(Dataset):
 
         boxes = torch.tensor(box_list).float()
         labels = torch.tensor(label_list_mapped).int()
+        nms_keep = ops.batched_nms(boxes=boxes,
+                                   scores=torch.ones(len(boxes)),
+                                   idxs=labels,
+                                   iou_threshold=self.nms_threshold)
+        
+        boxes, labels = boxes[nms_keep], labels[nms_keep]
 
         target = dict(boxes=boxes, labels=labels)
+
         if self.transforms is not None:
             image, target = self.transforms(image, target)
 
@@ -152,78 +159,87 @@ def collate_fn(batch):
 
 
 if __name__ == '__main__':
-    seed = 42
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    # Hardcoded configs
-    class Args(object):
-        def __init__(self):
-            self.split = 'test'
-            self.device = 'cpu'
-            self.output_dir = 'out'
-            self.print_interval = 1000
-            self.num_workers = 9
-            self.pretrained_weights_url = 'checkpoints/detr-r50-e632da11.pth'
+    parser = argparse.ArgumentParser()
 
-            ### Others (Not found yet) ###
-            self.lr = 1e-5
-            self.batch_size = 2
-            self.weight_decay = 1e-4
-            self.epochs = 300
-            self.lr_drop = 200
-            self.clip_max_norm = 0.1
-            ##############################
+    parser.add_argument('--eval', action='store_true')
+    parser.add_argument('--seed', default=42, type=int)
+    parser.add_argument('--device', default='cpu', type=str)
+    parser.add_argument('--num-workers', default=9, type=int)
+    parser.add_argument('--print-interval', default=1000, type=int)
+    parser.add_argument('--data-dir', default='hico_20160224_det', type=str)
+    parser.add_argument('--resume', default='', type=str, help='Resume from a checkpoint')
+    parser.add_argument('--pretrained', default='', type=str, help='Start from a pre-trained model')
 
-            ### Backbone ####
-            # Positional Encoding
-            self.hidden_dim = 256
-            self.position_embedding = 'sine' # Type of positional embedding to use on top of the image features
-            # Other backbone args
-            self.lr_backbone = 1e-6
-            self.backbone = 'resnet50'       # Name of the convolutional backbone to use
-            self.dilation = False     # If true, we replace stride with dilation in the last convolutional block (DC5)
-            #################
+    parser.add_argument('--sanity', action='store_true')
+    parser.add_argument('--output-dir', default='checkpoints')
 
-            ### Transformer ####
-            self.hidden_dim = 256            # Size of the embeddings (dimension of the transformer)
-            self.dropout = 0.1               # Dropout applied in the transformer
-            self.nheads = 8                  # Number of attention heads inside the transformer's attentions
-            self.dim_feedforward = 2048      # Intermediate size of the feedforward layers in the transformer blocks
-            self.enc_layers = 6              # Number of encoding layers in the transformer
-            self.dec_layers = 6              # Number of decoding layers in the transformer
-            self.pre_norm = False            # action='store_true'
-            #################
+    ##### Training #####
+    parser.add_argument('--lr', default=1e-5, type=float)
+    parser.add_argument('--batch-size', default=2, type=int)
+    parser.add_argument('--weight-decay', default=1e-4, type=float)
+    parser.add_argument('--epochs', default=300, type=int)
+    parser.add_argument('--lr-drop', default=200, type=int)
+    parser.add_argument('--clip-max-norm', default=0.1, type=float,
+                        help='gradient clipping max norm')
+    
+    ##### Backbone #####
+    parser.add_argument('--lr-backbone', default=1e-6, type=float)
+    parser.add_argument('--backbone', default='resnet50', type=str,
+                        help="Name of the convolutional backbone to use")
+    parser.add_argument('--dilation', action='store_true',
+                        help="If true, we replace stride with dilation in the last convolutional block (DC5)")
+    parser.add_argument('--position-embedding', default='sine', type=str, choices=['sine', 'learned'],
+                        help="Type of positional embedding to use on top of the image features")
 
-            ### DETR ###
-            self.num_queries = 100           # Number of query slots
-            self.aux_loss = True             # Auxiliary decoding losses (loss at each layer)
-            ############
+    ##### Transformer #####
+    parser.add_argument('--enc-layers', default=6, type=int,
+                        help="Number of encoding layers in the transformer")
+    parser.add_argument('--dec-layers', default=6, type=int,
+                        help="Number of decoding layers in the transformer")
+    parser.add_argument('--dim-feedforward', default=2048, type=int,
+                        help="Intermediate size of the feedforward layers in the transformer blocks")
+    parser.add_argument('--hidden-dim', default=256, type=int,
+                        help="Size of the embeddings (dimension of the transformer)")
+    parser.add_argument('--dropout', default=0.1, type=float,
+                        help="Dropout applied in the transformer")
+    parser.add_argument('--nheads', default=8, type=int,
+                        help="Number of attention heads inside the transformer's attentions")
+    parser.add_argument('--num-queries', default=100, type=int,
+                        help="Number of query slots")
+    parser.add_argument('--pre-norm', action='store_true')
 
-            ### Matcher ###
-            self.set_cost_class = 1          # Class coefficient in the matching cost
-            self.set_cost_bbox = 5           # L1 box coefficient in the matching cost
-            self.set_cost_giou = 2           # giou box coefficient in the matching cost
-            ###############
-            
-            ### Weight dict ###
-            self.bbox_loss_coef = 5
-            self.giou_loss_coef = 2
-            ####################
+    ##### Loss & Matcher #####
 
-            ### Criterion ###
-            self.eos_coef = 0.1              # Relative classification weight of the no-object class
-            #################
+    parser.add_argument('--no-aux-loss', dest='aux_loss', action='store_false',
+                        help="Disables auxiliary decoding losses (loss at each layer)")
+    parser.add_argument('--set-cost-class', default=1, type=float,
+                        help="Class coefficient in the matching cost")
+    parser.add_argument('--set-cost-bbox', default=5, type=float,
+                        help="L1 box coefficient in the matching cost")
+    parser.add_argument('--set-cost-giou', default=2, type=float,
+                        help="Giou box coefficient in the matching cost")
+    
+    # Loss coefficients
+    parser.add_argument('--bbox-loss-coef', default=5, type=float)
+    parser.add_argument('--giou-loss-coef', default=2, type=float)
+    parser.add_argument('--eos-coef', default=0.1, type=float,
+                        help="Relative classification weight of the no-object class")
+    
+    args = parser.parse_args()
+    print(args)
 
-    args = Args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
     
     detr, criterion, postprocessors = build_model(args)
 
-    print(f"Load pre-trained model from {args.pretrained_weights_url}")
-    detr.load_state_dict(torch.load(args.pretrained_weights_url)['model'])
+    if args.pretrained:
+        print(f'Load pre-trained model from {args.pretrained}')
+        detr.load_state_dict(torch.load(args.pretrained)['model'])
 
     # Swap the class prediction head to one that has 80 classes
-    # i.e. No nodes for N/A classes
+    # i.e. No output for N/A classes
     class_embed = torch.nn.Linear(256, 81, bias=True)
     w, b = detr.class_embed.state_dict().values()
     keep = [
@@ -236,6 +252,10 @@ if __name__ == '__main__':
     class_embed.load_state_dict(dict(weight=w[keep], bias=b[keep]))
     detr.class_embed = class_embed
 
+    if args.resume:
+        print(f'Load checkpoint from {args.resume}')
+        detr.load_state_dict(torch.load(args.resume)['model_state_dict'])
+
     # Prepare dataset transforms
     # Note: those custom transform function will add 'size' field to label dict.
     normalize = T.Compose([
@@ -243,7 +263,9 @@ if __name__ == '__main__':
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
-    if args.split == 'train':
+    if args.eval:
+        transforms = T.Compose([T.RandomResize([800], max_size=1333), normalize])
+    else:
         transforms = T.Compose([
             T.RandomHorizontalFlip(),
             T.ColorJitter(.4, .4, .4),
@@ -257,19 +279,9 @@ if __name__ == '__main__':
             ),
             normalize,
         ])
-    elif args.split == 'test':
-        transforms = T.Compose([
-            T.RandomResize([800], max_size=1333),
-            normalize,
-        ])
-    
-    transforms = T.Compose([
-            T.RandomResize([800], max_size=1333),
-            normalize,
-        ])
 
-    # dataset = HicoDetDataset('hico_20160224_det', split=args.split, transforms=transforms)
-    dataset = HicoDetDataset('hico_20160224_det', split=args.split, transforms=transforms)
+    split = 'test' if args.eval else 'train'
+    dataset = HicoDetDataset('hico_20160224_det', split=split, transforms=transforms)
     dataloader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn, num_workers=args.num_workers)
 
     ap, rec = eval(detr, dataloader, postprocessors['bbox'], threshold=0.1, device=args.device)

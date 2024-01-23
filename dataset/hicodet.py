@@ -6,7 +6,7 @@ from torchvision import ops
 from torch.utils.data import Dataset
 
 
-with open('id2coco_classes.json', 'r') as fp:
+with open(os.path.join(os.path.dirname(__file__), 'id2coco_classes.json'), 'r') as fp:
     id2coco_classes = json.load(fp=fp)
 
 

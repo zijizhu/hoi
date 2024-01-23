@@ -38,8 +38,6 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
         scores, labels, boxes = postprocessors(output, target[0]['size'].unsqueeze(0))[0].values()
         keep = torch.nonzero(scores >= threshold).squeeze(1)
 
-        postprocessed_output = dict(raw=output, scores=scores, labels=labels, boxes=boxes)
-
         scores = scores[keep]
         labels = labels[keep]
         boxes = boxes[keep]
@@ -81,11 +79,14 @@ def eval(model: torch.nn.Module, dataloader, postprocessors, threshold=0.7, devi
             
             binary_labels[det_idx] = associate_results
 
-        kept_output = dict(scores=scores, labels=labels, boxes=boxes, binary_labels=binary_labels)
+        save_output = dict(img_path=image_path,
+                           scores=scores,
+                           labels=labels,
+                           boxes=boxes,
+                           binary_labels=binary_labels)
+        save_data.append(save_output)
 
         meter.append(scores, labels, binary_labels)
-
-        save_data.append(dict(postprocessed=postprocessed_output, kept=kept_output))
 
     meter.num_gt = num_gt.tolist()
 

@@ -6,6 +6,10 @@ from torchvision import ops
 from torch.utils.data import Dataset
 
 
+with open('id2coco_classes.json', 'r') as fp:
+    id2coco_classes = json.load(fp=fp)
+
+
 class HicoDetDataset(Dataset):
     def __init__(self, dataset_dir, split, transforms=None, nms_threshold=0.7) -> None:
         super().__init__()
@@ -19,8 +23,6 @@ class HicoDetDataset(Dataset):
             ann_filename = 'test_hico.json'
         with open(os.path.join(self.dataset_dir, ann_filename), 'r') as fp:
             self.annotation = json.load(fp=fp)
-        with open('id2coco_classes.json', 'r') as fp:
-            id2coco_classes = json.load(fp=fp)
         # Map class classes to contiguous indices [1, 90] to [0, 79]
         label_indices = sorted([int(i) for i in id2coco_classes.keys()])
         self.label_map = {i: j for i, j in zip(label_indices, range(80))}
